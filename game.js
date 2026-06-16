@@ -100,7 +100,6 @@ function updateHub() {
     gameState.lastInteraction = Date.now();
     localStorage.setItem('pokeSave', JSON.stringify(gameState));
 }
-}
 
 // --- PETTING SWIRL MECHANIC ---
 let touchTimer;
