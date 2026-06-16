@@ -1,8 +1,19 @@
 // Game State
+// Game State
 let gameState = {
     id: 1, name: 'Bulbasaur', level: 5, xp: 0, maxXp: 100, 
-    hearts: 2, attack: 10, defense: 10, maxHp: 50
+    hearts: 2, attack: 10, defense: 10, maxHp: 50,
+    berries: 5, lastInteraction: Date.now()
 };
+
+// Heart Depletion Interval (Loses 1 heart every 60 seconds)
+setInterval(() => {
+    if (gameState.hearts > 0 && !document.getElementById('hub-screen').classList.contains('hidden')) {
+        gameState.hearts--;
+        gameState.lastInteraction = Date.now();
+        updateHub();
+    }
+}, 60000);
 
 // UI Elements
 const screens = ['loading-screen', 'main-menu', 'intro-screen', 'hub-screen', 'battle-screen', 'evo-screen'];
@@ -26,6 +37,18 @@ window.onload = () => {
 function startGame(isNew) {
     if(!isNew && localStorage.getItem('pokeSave')) {
         gameState = JSON.parse(localStorage.getItem('pokeSave'));
+        
+        // Backward compatibility for old saves
+        if (gameState.berries === undefined) gameState.berries = 5;
+        if (!gameState.lastInteraction) gameState.lastInteraction = Date.now();
+
+        // Calculate offline heart depletion (1 heart lost per minute offline)
+        let minutesOffline = Math.floor((Date.now() - gameState.lastInteraction) / 60000);
+        if (minutesOffline > 0) {
+            gameState.hearts = Math.max(0, gameState.hearts - minutesOffline);
+            gameState.lastInteraction = Date.now();
+        }
+
         updateHub();
         showScreen('hub-screen');
     } else {
@@ -68,24 +91,45 @@ function updateHub() {
         heartsHtml += `<span class="text-xl ${i < gameState.hearts ? 'text-red-500' : 'text-gray-600'}">♥</span>`;
     }
     document.getElementById('heart-container').innerHTML = heartsHtml;
+    
+    // Update Berries
+    if(document.getElementById('berry-count')) {
+        document.getElementById('berry-count').innerText = gameState.berries;
+    }
+    
+    gameState.lastInteraction = Date.now();
     localStorage.setItem('pokeSave', JSON.stringify(gameState));
+}
 }
 
 // --- PETTING SWIRL MECHANIC ---
 let touchTimer;
 let isSwirling = false;
 const spriteContainer = document.getElementById('sprite-container');
+const hubSprite = document.getElementById('hub-sprite');
 
-spriteContainer.addEventListener('pointerdown', () => {
+// Prevent image dragging which breaks touch on mobile
+hubSprite.ondragstart = () => false;
+spriteContainer.style.touchAction = 'none'; // Prevents page scrolling while swirling
+
+function startSwirl(e) {
+    e.preventDefault();
     isSwirling = true;
     touchTimer = setTimeout(() => {
         if(isSwirling) gainHeart();
-    }, 4000); // 4 Seconds continuous swirl
-});
-window.addEventListener('pointerup', () => {
+    }, 2000); // Reduced to 2 seconds so it feels more responsive
+}
+
+function stopSwirl() {
     isSwirling = false;
     clearTimeout(touchTimer);
-});
+}
+
+spriteContainer.addEventListener('touchstart', startSwirl, {passive: false});
+spriteContainer.addEventListener('mousedown', startSwirl);
+window.addEventListener('touchend', stopSwirl);
+window.addEventListener('mouseup', stopSwirl);
+window.addEventListener('touchcancel', stopSwirl);
 
 function gainHeart() {
     if(gameState.hearts < 10) {
@@ -103,7 +147,18 @@ function gainHeart() {
     }
 }
 
-function feedBerry() { gainHeart(); }
+function feedBerry() { 
+    if (gameState.berries > 0) {
+        if (gameState.hearts < 10) {
+            gameState.berries--;
+            gainHeart();
+        } else {
+            alert(`${gameState.name} is completely full and happy!`);
+        }
+    } else {
+        alert("You don't have any berries left! Win battles to find more.");
+    }
+}
 
 // --- XP AND MOOD SYSTEM ---
 function addXP(baseXp) {
@@ -163,6 +218,16 @@ function enterBattle() {
         this.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${wildId}.gif`;
     };
     
+    // Fetch Correct Name Dynamically
+    document.getElementById('enemy-name').innerText = "Wild Pokemon"; // Temp fallback
+    fetch(`https://pokeapi.co/api/v2/pokemon/${wildId}`)
+        .then(res => res.json())
+        .then(data => {
+            let capitalized = data.name.charAt(0).toUpperCase() + data.name.slice(1);
+            document.getElementById('enemy-name').innerText = "Wild " + capitalized;
+        })
+        .catch(err => console.log(err));
+    
     document.getElementById('battle-player-sprite').src = document.getElementById('hub-sprite').src;
     document.getElementById('battle-player-name').innerText = gameState.name;
     
@@ -199,7 +264,16 @@ function updateHealthBars() {
 function endBattle(won) {
     clearInterval(battleInterval);
     if(won) {
-        alert("You won!");
+        let lootMsg = "You won!";
+        
+        // 40% Chance to drop a Berry
+        if (Math.random() < 0.40) {
+            let foundBerries = Math.floor(Math.random() * 2) + 1; // Finds 1 or 2 berries
+            gameState.berries += foundBerries;
+            lootMsg += ` And found ${foundBerries} 🍓 Berry!`;
+        }
+        
+        alert(lootMsg);
         addXP(50);
     } else {
         alert("You blacked out...");
