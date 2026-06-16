@@ -163,24 +163,39 @@ function feedBerry() {
 // --- XP AND MOOD SYSTEM ---
 function addXP(baseXp) {
     let multiplier = 0;
-    if (gameState.hearts <= 1) multiplier = 0; // Bad Mood
-    else if (gameState.hearts <= 3) multiplier = 0.5; // Fair Mood
-    else if (gameState.hearts <= 5) multiplier = 2; // Good mood
-    else multiplier = 3; // Great mood
+    if (gameState.hearts <= 1) multiplier = 0; 
+    else if (gameState.hearts <= 3) multiplier = 0.5; 
+    else if (gameState.hearts <= 5) multiplier = 2; 
+    else multiplier = 3; 
 
     if (multiplier === 0) {
         alert(`${gameState.name} is in a bad mood and refuses! Pet it or feed it.`);
+        updateHub();
         return;
     }
 
-    gameState.xp += (baseXp * multiplier);
-    if(gameState.xp >= gameState.maxXp) levelUp();
-    updateHub();
+    let gainedXp = Math.floor(baseXp * multiplier);
+    let newTotalXp = gameState.xp + gainedXp;
+
+    if (newTotalXp >= gameState.maxXp) {
+        // Step 1: Animate the bar visually to 100%
+        document.getElementById('xp-bar').style.width = '100%';
+        
+        // Step 2: Wait 600ms for the CSS transition to finish, THEN level up
+        setTimeout(() => {
+            let leftoverXp = newTotalXp - gameState.maxXp;
+            levelUp(leftoverXp); // Pass the overflow XP into the next level
+        }, 600);
+    } else {
+        // Normal XP gain without leveling up
+        gameState.xp = newTotalXp;
+        updateHub();
+    }
 }
 
-function levelUp() {
+function levelUp(leftoverXp = 0) {
     gameState.level++;
-    gameState.xp = 0;
+    gameState.xp = leftoverXp; // Keep the extra XP earned
     gameState.maxXp = Math.floor(gameState.maxXp * 1.5);
     
     // Stat gains based on mood
@@ -188,11 +203,22 @@ function levelUp() {
     gameState.attack = Math.floor(gameState.attack * statBuff);
     gameState.defense = Math.floor(gameState.defense * statBuff);
 
-    if (gameState.level > 10 && Math.random() > 0.5 && gameState.id === 1) {
-        triggerEvolution(2, 'Ivysaur');
-    } else {
-        alert(`${gameState.name} grew to Level ${gameState.level}!`);
-    }
+    // Instantly snap XP bar back to 0 without animation
+    let xpBar = document.getElementById('xp-bar');
+    xpBar.style.transition = 'none';
+    xpBar.style.width = '0%';
+
+    // Wait 50ms, then turn animations back on and apply the new stats/leftover XP
+    setTimeout(() => {
+        xpBar.style.transition = 'all 0.5s ease';
+        updateHub(); // This animates the bar to the leftover XP amount
+        
+        if (gameState.level > 10 && Math.random() > 0.5 && gameState.id === 1) {
+            triggerEvolution(2, 'Ivysaur');
+        } else {
+            alert(`${gameState.name} grew to Level ${gameState.level}!`);
+        }
+    }, 50);
 }
 
 // --- BATTLE SYSTEM ---
@@ -265,22 +291,22 @@ function endBattle(won) {
     clearInterval(battleInterval);
     if(won) {
         let lootMsg = "You won!";
-        
-        // 40% Chance to drop a Berry
         if (Math.random() < 0.40) {
-            let foundBerries = Math.floor(Math.random() * 2) + 1; // Finds 1 or 2 berries
+            let foundBerries = Math.floor(Math.random() * 2) + 1; 
             gameState.berries += foundBerries;
             lootMsg += ` And found ${foundBerries} 🍓 Berry!`;
         }
-        
         alert(lootMsg);
-        addXP(50);
+        
+        // Switch to hub FIRST, then trigger the XP animation
+        showScreen('hub-screen');
+        setTimeout(() => addXP(50), 300); // Small delay to let screen transition finish
     } else {
         alert("You blacked out...");
-        gameState.hearts = Math.max(0, gameState.hearts - 2); // Lose hearts on loss
+        gameState.hearts = Math.max(0, gameState.hearts - 2); 
+        updateHub();
+        showScreen('hub-screen');
     }
-    updateHub();
-    showScreen('hub-screen');
 }
 
 // --- EVOLUTION SYSTEM ---
