@@ -1,0 +1,232 @@
+// Game State
+let gameState = {
+    id: 1, name: 'Bulbasaur', level: 5, xp: 0, maxXp: 100, 
+    hearts: 2, attack: 10, defense: 10, maxHp: 50
+};
+
+// UI Elements
+const screens = ['loading-screen', 'main-menu', 'intro-screen', 'hub-screen', 'battle-screen', 'evo-screen'];
+function showScreen(id) {
+    screens.forEach(s => document.getElementById(s).classList.add('hidden'));
+    document.getElementById(id).classList.remove('hidden');
+}
+
+// Boot Sequence
+window.onload = () => {
+    setTimeout(() => {
+        document.getElementById('loading-bar').style.width = '100%';
+        setTimeout(() => {
+            if(localStorage.getItem('pokeSave')) document.getElementById('btn-continue').classList.remove('hidden');
+            showScreen('main-menu');
+        }, 800);
+    }, 500);
+};
+
+// Start or Continue
+function startGame(isNew) {
+    if(!isNew && localStorage.getItem('pokeSave')) {
+        gameState = JSON.parse(localStorage.getItem('pokeSave'));
+        updateHub();
+        showScreen('hub-screen');
+    } else {
+        showScreen('intro-screen');
+    }
+}
+
+// Story Sequence
+let storyStep = 0;
+const storyLines = [
+    "Welcome to the world of Pokemon! Your dream to become a Master begins now.",
+    "I am the Professor. I'm gifting you this Bulbasaur to start your journey!",
+    "Take good care of it. Feed it, pet it, and battle to grow stronger!"
+];
+function nextStory() {
+    storyStep++;
+    if(storyStep >= storyLines.length) {
+        updateHub();
+        showScreen('hub-screen');
+    } else {
+        document.getElementById('story-text').innerText = storyLines[storyStep];
+    }
+}
+
+// Update Hub UI
+function updateHub() {
+    document.getElementById('hub-name').innerText = gameState.name;
+    document.getElementById('hub-level').innerText = gameState.level;
+    document.getElementById('xp-bar').style.width = `${(gameState.xp / gameState.maxXp) * 100}%`;
+    document.getElementById('hub-sprite').src = `assets/sprites/${gameState.id}_animated.gif`;
+    
+    // Fallback if script wasn't run or running on GH pages without assets downloaded:
+    document.getElementById('hub-sprite').onerror = function() {
+        this.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${gameState.id}.gif`;
+    };
+
+    // Draw Hearts
+    let heartsHtml = '';
+    for(let i=0; i<10; i++) {
+        heartsHtml += `<span class="text-xl ${i < gameState.hearts ? 'text-red-500' : 'text-gray-600'}">♥</span>`;
+    }
+    document.getElementById('heart-container').innerHTML = heartsHtml;
+    localStorage.setItem('pokeSave', JSON.stringify(gameState));
+}
+
+// --- PETTING SWIRL MECHANIC ---
+let touchTimer;
+let isSwirling = false;
+const spriteContainer = document.getElementById('sprite-container');
+
+spriteContainer.addEventListener('pointerdown', () => {
+    isSwirling = true;
+    touchTimer = setTimeout(() => {
+        if(isSwirling) gainHeart();
+    }, 4000); // 4 Seconds continuous swirl
+});
+window.addEventListener('pointerup', () => {
+    isSwirling = false;
+    clearTimeout(touchTimer);
+});
+
+function gainHeart() {
+    if(gameState.hearts < 10) {
+        gameState.hearts++;
+        const effect = document.getElementById('swirl-effect');
+        const sprite = document.getElementById('hub-sprite');
+        effect.classList.add('animate-swirl');
+        sprite.classList.add('flash-white');
+        
+        setTimeout(() => {
+            effect.classList.remove('animate-swirl');
+            sprite.classList.remove('flash-white');
+            updateHub();
+        }, 1000);
+    }
+}
+
+function feedBerry() { gainHeart(); }
+
+// --- XP AND MOOD SYSTEM ---
+function addXP(baseXp) {
+    let multiplier = 0;
+    if (gameState.hearts <= 1) multiplier = 0; // Bad Mood
+    else if (gameState.hearts <= 3) multiplier = 0.5; // Fair Mood
+    else if (gameState.hearts <= 5) multiplier = 2; // Good mood
+    else multiplier = 3; // Great mood
+
+    if (multiplier === 0) {
+        alert(`${gameState.name} is in a bad mood and refuses! Pet it or feed it.`);
+        return;
+    }
+
+    gameState.xp += (baseXp * multiplier);
+    if(gameState.xp >= gameState.maxXp) levelUp();
+    updateHub();
+}
+
+function levelUp() {
+    gameState.level++;
+    gameState.xp = 0;
+    gameState.maxXp = Math.floor(gameState.maxXp * 1.5);
+    
+    // Stat gains based on mood
+    let statBuff = gameState.hearts >= 5 ? 1.10 : (gameState.hearts >= 3 ? 1.05 : 1.0);
+    gameState.attack = Math.floor(gameState.attack * statBuff);
+    gameState.defense = Math.floor(gameState.defense * statBuff);
+
+    if (gameState.level > 10 && Math.random() > 0.5 && gameState.id === 1) {
+        triggerEvolution(2, 'Ivysaur');
+    } else {
+        alert(`${gameState.name} grew to Level ${gameState.level}!`);
+    }
+}
+
+// --- BATTLE SYSTEM ---
+let battleInterval;
+let eHp = 100;
+let pHp = gameState.maxHp;
+
+function enterBattle() {
+    if(gameState.hearts <= 1) {
+        alert(`${gameState.name} is too sad to battle!`); return;
+    }
+    if(gameState.hearts <= 3 && Math.random() > 0.5) {
+        alert(`${gameState.name} refused to battle!`); return;
+    }
+
+    showScreen('battle-screen');
+    eHp = 100; pHp = gameState.maxHp;
+    
+    // Load Wild Pokemon
+    let wildId = Math.floor(Math.random() * 150) + 1;
+    document.getElementById('enemy-sprite').src = `assets/sprites/${wildId}_animated.gif`;
+    document.getElementById('enemy-sprite').onerror = function() {
+        this.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${wildId}.gif`;
+    };
+    
+    document.getElementById('battle-player-sprite').src = document.getElementById('hub-sprite').src;
+    document.getElementById('battle-player-name').innerText = gameState.name;
+    
+    updateHealthBars();
+
+    // AI Enemy Spamming Attacks
+    battleInterval = setInterval(() => {
+        pHp -= Math.floor(Math.random() * 5) + 2;
+        updateHealthBars();
+        if(pHp <= 0) endBattle(false);
+    }, 1200);
+}
+
+function playerAttack() {
+    let damage = gameState.attack;
+    // Great mood 1-hit KO chance
+    if(gameState.hearts >= 5 && Math.random() < 0.1) damage = 999;
+    
+    eHp -= damage;
+    updateHealthBars();
+    
+    // Anime attack effect
+    document.getElementById('enemy-sprite').style.transform = 'translate(40px) scale(1.1)';
+    setTimeout(() => document.getElementById('enemy-sprite').style.transform = 'translate(40px)', 100);
+
+    if(eHp <= 0) endBattle(true);
+}
+
+function updateHealthBars() {
+    document.getElementById('player-hp').style.width = `${Math.max(0, (pHp/gameState.maxHp)*100)}%`;
+    document.getElementById('enemy-hp').style.width = `${Math.max(0, (eHp/100)*100)}%`;
+}
+
+function endBattle(won) {
+    clearInterval(battleInterval);
+    if(won) {
+        alert("You won!");
+        addXP(50);
+    } else {
+        alert("You blacked out...");
+        gameState.hearts = Math.max(0, gameState.hearts - 2); // Lose hearts on loss
+    }
+    updateHub();
+    showScreen('hub-screen');
+}
+
+// --- EVOLUTION SYSTEM ---
+function triggerEvolution(newId, newName) {
+    showScreen('evo-screen');
+    document.getElementById('evo-old-name').innerText = gameState.name;
+    document.getElementById('evo-sprite').src = document.getElementById('hub-sprite').src;
+    
+    setTimeout(() => {
+        gameState.id = newId;
+        gameState.name = newName;
+        gameState.attack += 20;
+        gameState.defense += 20;
+        document.getElementById('evo-sprite').classList.remove('brightness-0', 'animate-pulse');
+        document.getElementById('evo-sprite').src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${newId}.gif`;
+        
+        setTimeout(() => {
+            alert(`Your Pokemon evolved into ${newName}!`);
+            updateHub();
+            showScreen('hub-screen');
+        }, 2000);
+    }, 3000);
+}
